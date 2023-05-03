@@ -4,6 +4,10 @@
         "xstring": "cpp",
         "vector": "cpp",
         "ostream": "cpp",
-        "string": "cpp"
+        "string": "cpp",
+        "iostream": "cpp",
+        "iosfwd": "cpp",
+        "deque": "cpp",
+        "optional": "cpp"
     }
 }
