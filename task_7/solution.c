@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <assert.h>
 
+#define STR_BUF_LEN(x) (strlen(x) + 1)
+
 typedef enum
 {
     SUCCESS = 0,
@@ -12,6 +14,13 @@ typedef enum
     MEM_ALLOC_FAILED,
     INVALID_INPUT
 } res_status_e;
+
+typedef enum
+{
+    TYPE_FILE = 0,
+    TYPE_DIR,
+    TYPE_LINK
+} file_type_e;
 
 struct inode; //forward declaration
 
@@ -24,7 +33,7 @@ typedef struct {
 typedef struct inode
 {
     char* name;
-    bool is_dir;
+    file_type_e file_type;
     union {
         uint32_t file_size;
         dir_metadata* dir_md;
@@ -44,9 +53,9 @@ res_status_e validate_folder(inode* folder)
         printf("validate_folder(): folder is NULL!\n");
         return INVALID_INPUT;
     }
-    if(!folder->is_dir)
+    if(folder->file_type != TYPE_DIR)
     {
-        printf("validate_folder(): folder->is_dir == false!\n");
+        printf("validate_folder(): folder->file_type != TYPE_DIR!\n");
         return INVALID_INPUT;
     }
     if(!folder->name)
@@ -63,25 +72,32 @@ res_status_e validate_folder(inode* folder)
     return SUCCESS;
 }
 
-res_status_e validate_file(inode* file)
+void print_dir(inode* folder)
 {
-    if(!file)
+    if(!validate_folder)
     {
-        printf("validate_file(): file is NULL!\n");
-        return INVALID_INPUT;
+        printf("print_dir(): folder not valid!\n");
+        return;
     }
-    if(file->is_dir)
+    printf(" folder name: %s\n", folder->name);
+    printf("num of files: %u\n", folder->dir_md->num_files);
+    for(uint32_t index = 0; index < folder->dir_md->num_files; index++)
     {
-        printf("validate_file(): file->is_dir == true!\n");
-        return INVALID_INPUT;
+        inode* file_ptr = folder->dir_md->files_list[index];
+        switch(file_ptr->file_type)
+        {
+            case TYPE_DIR:
+                printf("\t dir: %s\n", file_ptr->name);
+                break;
+            case TYPE_LINK:
+                printf("\tlink: %s\n", file_ptr->name);
+                break;
+            default: // TYPE_FILE
+                printf("\tfile: %s size: %u\n", file_ptr->name, file_ptr->file_size);
+                break;
+        }
     }
-    if(!file->name)
-    {
-        printf("validate_folder(): file->name == NULL!\n");
-        return INVALID_INPUT;
-    }
-
-    return SUCCESS;
+    printf("\n");
 }
 
 /*
@@ -140,10 +156,10 @@ res_status_e add_file_to_dir(inode* file, inode* folder)
     {
         return res;
     }
-    res = validate_file(file);
-    if(res != SUCCESS)
+    if(!file)
     {
-        return res;
+        printf("add_file_to_dir(): file is NULL!");
+        return INVALID_INPUT;
     }
 
     // if first time or no more space
@@ -156,6 +172,39 @@ res_status_e add_file_to_dir(inode* file, inode* folder)
         }
     }
 
+    // if the file is a folder, add a parent link in the new folder (..)
+    // if the file is a TYPE_LINK, will not enter condition, thus not causing infinite recursions.
+    if(file->file_type == TYPE_DIR)
+    {
+        inode* parent_link = (inode*)calloc(1, sizeof(inode));
+        char* parent_static_name = "..";
+        char* parent_dynamic_name = (char*)calloc(1, STR_BUF_LEN(parent_static_name));
+        if(!parent_link || !parent_dynamic_name)
+        {
+            if(parent_link)
+                free(parent_link);
+            if(parent_dynamic_name)
+                free(parent_dynamic_name);
+            printf("add_file_to_dir(): calloc failed!\n");
+            return MEM_ALLOC_FAILED;
+        }
+        strcpy(parent_dynamic_name, parent_static_name);
+        parent_link->name = parent_dynamic_name;
+        parent_link->file_type = TYPE_LINK;
+        parent_link->dir_md = folder->dir_md; // reference the parent folder's metadata
+        res = add_file_to_dir(parent_link, file); // recursive call
+        if(res != SUCCESS)
+        {
+            if(parent_link)
+                free(parent_link);
+            if(parent_dynamic_name)
+                free(parent_dynamic_name);
+            printf("add_file_to_folder(): add parent link reference failed!\n");
+            return res;
+        }
+    }
+
+    // add file to parent folder
     uint32_t index = folder->dir_md->num_files;
     folder->dir_md->files_list[index] = file;
     folder->dir_md->num_files++;
@@ -163,205 +212,114 @@ res_status_e add_file_to_dir(inode* file, inode* folder)
     return SUCCESS;
 }
 
-res_status_e init_dir(char* name, inode* parent_dir, inode* output_dir)
-{
-    res_status_e status;
-    
-    if(!name || !parent_dir)
+inode* init_dir(char* name)
+{    
+    if(!name)
     {
-        printf("init_dir(): input is NULL (name || parent_dir) !\n");
-        return INVALID_INPUT;
-    }
-    if(output_dir)
-    {
-        printf("init_dir(): output_dir must be NULL!\n");
-    }
-    status = validate_folder(parent_dir);
-    if(status != SUCCESS)
-    {
-        return status;
+        printf("init_dir(): name is NULL!\n");
+        return NULL;
     }
 
     inode* res_dir = (inode*)calloc(1, sizeof(inode));
     dir_metadata* dir_md = (dir_metadata*)calloc(1, sizeof(dir_metadata));
-    inode* par_dir = (inode*)calloc(1, sizeof(inode));
-    char* par_name = (char*)calloc(1, 3);
+    char* dir_name = (char*)calloc(1,STR_BUF_LEN(name));
 
-    if((!res_dir) || (!dir_md) || (!par_dir) || (!par_name))
+    if((!res_dir) || (!dir_md) || (!dir_name))
     {
         if(res_dir)
             free(res_dir);
         if(dir_md)
             free(dir_md);
-        if(par_dir)
-            free(par_dir);
-        if(par_name)
-            free(par_name);
+        if(dir_name)
+            free(dir_name);
         printf("init_dir(): calloc failed!\n");
-        return MEM_ALLOC_FAILED;
+        return NULL;
     }
 
-    output_dir = res_dir;
-    output_dir->name = name;
-    output_dir->is_dir = true;
-    output_dir->dir_md = dir_md;
+    strcpy(dir_name, name);
+    res_dir->name = dir_name;
+    res_dir->file_type = TYPE_DIR;
+    res_dir->dir_md = dir_md;
 
-    par_dir->name = par_name;
-    strcpy(par_dir->name, "..");
-    par_dir->is_dir = true;
-    par_dir->dir_md = parent_dir->dir_md; // point to parent's metadata
-
-    status = add_file_to_dir(par_dir, output_dir);
-    if(status != SUCCESS)
-    {
-        // TODO: handle error here
-        printf("init_root_dir(): add_file_to_dir_failed!\n");
-        return status;
-    }
-    return SUCCESS;
+    return res_dir;
 }
 
-res_status_e init_root_dir(inode* output_dir)
-{
-    res_status_e status;
-    if(output_dir)
-    {
-        printf("init_root_dir(): output_dir must be NULL\n");
-        return INVALID_INPUT;
-    }
-    inode* dir = (inode*)calloc(1, sizeof(inode));
-    char* name = (char*)calloc(1,5);
-    inode* par_dir = (inode*)calloc(1, sizeof(inode));
-    char* par_name = (char*)calloc(1,3);
-    dir_metadata* dir_md = (dir_metadata*)calloc(1, sizeof(dir_metadata));
-
-    if((!dir) || (!name) || (!par_dir) || (!par_name) || (!dir_md))
-    {
-        if(dir)
-            free(dir);
-        if(name)
-            free(name);
-        if(par_dir)
-            free(par_name);
-        if(par_name)
-            free(par_name);
-        if(dir_md)
-            free(dir_md);
-        printf("init_root_dir(): calloc failed!\n");
-        return MEM_ALLOC_FAILED;
-    }
-
-    dir->name = name;
-    strcpy(dir->name, "root");
-    dir->is_dir = true;
-    dir->dir_md = dir_md;
-
-    par_dir->name = par_name;
-    strcpy(par_dir->name, "..");
-    par_dir->is_dir = true;
-    par_dir->dir_md = dir_md; // circular reference to root dir
-
-    status = add_file_to_dir(par_dir, dir);
-    if(status != SUCCESS)
-    {
-        //TODO: handle error here
-        printf("init_root_dir(): add_file_to_dir_failed!\n");
-        return status;
-    }
-    return SUCCESS;
-}
-
-res_status_e init_file(char* name, uint32_t size, inode* out_file)
+inode* init_file(char* name, uint32_t size)
 {
     if(!name)
     {
         printf("init_file(): name is NULL!\n");
-        return INVALID_INPUT;
-    }
-    if(out_file)
-    {
-        printf("init_file(): out_file must be NULL!\n");
-        return INVALID_INPUT;
+        return NULL;
     }
 
-    out_file = (inode*)calloc(1, sizeof(inode));
-    if(!out_file)
+    inode* out_file = (inode*)calloc(1, sizeof(inode));
+    char* file_name = (char*)calloc(1,STR_BUF_LEN(name)); // null terminator
+    if((!out_file) || (!file_name))
     {
+        if(out_file)
+            free(out_file);
+        if(file_name)
+            free(file_name);
         printf("init_file(): calloc failed!\n");
-        return MEM_ALLOC_FAILED;   
+        return NULL;   
     }
 
-    out_file->name = name;
-    out_file->is_dir = false;
+    out_file->name = file_name;
+    strcpy(out_file->name, name);
+    out_file->file_type = TYPE_FILE;
     out_file->file_size = size;
-    return SUCCESS;
+    return out_file;
 }
 
-res_status_e init_fs(file_system* out_fs)
+file_system* init_fs()
 {
-    if(out_fs != NULL)
+    file_system* fs = (file_system*)malloc(sizeof(file_system));
+    inode* root_dir = init_dir("root");
+    
+    if(!fs || !root_dir)
     {
-        printf("init_fs(): fs must be NULL!\n");
-        return INVALID_INPUT;
+        if(fs)
+            free(fs);
+        if(root_dir)
+            free(root_dir);
+        printf("init_fs(): memory allocation failed!\n");
+        return NULL;
     }
 
-    out_fs = (file_system*)malloc(sizeof(file_system));
-    if(out_fs == NULL)
-    {
-        printf("init_fs(): malloc failed!\n");
-        return MEM_ALLOC_FAILED;
-    }
+    fs->root_folder = root_dir;
+    fs->current_folder = root_dir; // start from root;
 
-    inode* root_dir = NULL;
-    res_status_e status = init_root_dir(root_dir);
-    if(status != SUCCESS)
-    {
-        return status;        
-    }
-
-    out_fs->root_folder = root_dir;
-    out_fs->current_folder = root_dir; // start from root;
-    return SUCCESS;
+    return fs;
 }
 
-void print_dir(inode* folder)
-{
-    if(!validate_folder)
-    {
-        printf("print_dir(): folder not valid!\n");
-        return;
-    }
-    printf("folder name: %s", folder->name);
-    for(uint32_t index = 0; index < folder->dir_md->num_files; index++)
-    {
-        inode* file_ptr = folder->dir_md->files_list[index];
-        if(file_ptr->is_dir)
-        {
-            printf("dir:  %s\n", file_ptr->name);
-        }
-        else
-        {
-            printf("file: %s size: %u\n", file_ptr->name, file_ptr->file_size);
-        }
-    }
-}
+
 
 int main()
 {
-    //TODO: names should be handled with alloc and strcpy
-    //TODO: init_dir should not add parent pointer to folder
-    //TODO: instead, add_file_to_folder should "mount" the folder and add a parent pointer
+    /*
+    TODO: make add_file_to_dir idempotent or crash if called twice?
+    */
     
-    file_system* fs = NULL;
-    res_status_e status = init_fs(fs);
+    res_status_e status = SUCCESS;
 
-    inode* home_dir = NULL;
-    status = init_dir("home", fs->root_folder, home_dir);
-    if(status != SUCCESS)
-    {
-        printf("init dir failed");
-        return;
-    }
+    file_system* fs = init_fs();
 
+    inode* home_dir = init_dir("home");
+    assert(home_dir != NULL);
 
+    inode* ywaisman_dir = init_dir("ywaisman");
+    assert(ywaisman_dir != NULL);
+
+    inode* some_file = init_file("grades.txt", 512);
+    assert(some_file != NULL);
+
+    assert(add_file_to_dir(home_dir, fs->root_folder) == SUCCESS);
+    assert(add_file_to_dir(ywaisman_dir, home_dir) == SUCCESS);
+    assert(add_file_to_dir(some_file, home_dir) == SUCCESS);
+
+    print_dir(fs->root_folder);
+
+    print_dir(home_dir);
+
+    return 0;
 }
