@@ -147,11 +147,28 @@ res_status_e expand_folder_mem(inode* folder)
     return SUCCESS;
 }
 
+bool is_file_exists(inode* file, inode* folder)
+{
+    if(!file || !folder)
+    {
+        printf("is_file_exists(): input is NULL\n");
+        return INVALID_INPUT;
+    }
+    for(uint32_t index = 0; index < folder->dir_md->num_files; index++)
+    {
+        inode* curr_file = folder->dir_md->files_list[index];
+        if(strcmp(file->name, curr_file->name) == 0) // equals
+            return true;
+    }
+    return false;
+}
+
 /*
 return types:
 - INVALID_INPUT
 - MEM_ALLOC_FAILED
 - SUCCESS
+- ALREADY_EXISTS
 */
 res_status_e add_file_to_dir(inode* file, inode* folder)
 {
@@ -165,6 +182,11 @@ res_status_e add_file_to_dir(inode* file, inode* folder)
     {
         printf("add_file_to_dir(): file is NULL!");
         return INVALID_INPUT;
+    }
+
+    if(is_file_exists(file, folder))
+    {
+        return ALREADY_EXISTS;
     }
 
     // if first time or no more space
@@ -304,9 +326,14 @@ res_status_e change_dir(file_system* fs, char* next_dir_name)
         printf("input is NULL!\n");
         return INVALID_INPUT;
     }
-    
     assert(fs->current_folder != NULL);         // should never happen!
     assert(fs->current_folder->dir_md != NULL); // should never happen!
+
+    if(strcmp(next_dir_name, "/") == 0)
+    {
+        fs->current_folder = fs->root_folder;
+        return SUCCESS;
+    }
 
     inode** curr_dir_files = fs->current_folder->dir_md->files_list;
     uint32_t num_files = fs->current_folder->dir_md->num_files;
@@ -350,6 +377,8 @@ res_status_e process_cmd(file_system *fs, char *line)
         printf("process_cmd(): input is NULL!\n");
         return INVALID_INPUT;
     }
+
+    line[strcspn(line, "\r\n")] = 0; // remove trailing newline
 
     char* line_copy = (char*)calloc(STR_BUF_LEN(line), sizeof(char));
     if(!line_copy)
@@ -403,6 +432,10 @@ res_status_e process_cmd(file_system *fs, char *line)
                         printf("error %u while adding file %s to folder %s\n", status, file->name, fs->current_folder->name);
                         return status;
                     }
+                    if(status == ALREADY_EXISTS)
+                    {
+                        printf("file %s already exists in folder %s\n", file->name, fs->current_folder->name);
+                    }
                 }
                 break;
             case 2:
@@ -425,7 +458,11 @@ res_status_e process_cmd(file_system *fs, char *line)
     return SUCCESS;
 }
 
-res_status_e read_file(char* file_path)
+/*
+reads input file and build the file system tree
+will return NULL on failure
+*/
+file_system* process_input(char* file_path)
 {
     file_system* fs = init_fs();
 
@@ -434,7 +471,7 @@ res_status_e read_file(char* file_path)
     if(!file_path)
     {
         printf("file_path is NULL!\n");
-        return INVALID_INPUT;
+        return NULL;
     }
     FILE* fp;
     char line[MAX_LINE];
@@ -443,7 +480,7 @@ res_status_e read_file(char* file_path)
     if(!fp)
     {
         printf("error opening file %s\n", file_path);
-        return FAILURE;
+        return NULL;
     }
 
     while(fgets(line, MAX_LINE, fp))
@@ -452,9 +489,10 @@ res_status_e read_file(char* file_path)
         if(status != SUCCESS)
         {
             printf("error code %u while processing cmd: %s\n", status, line);
-            return status;
+            return NULL;
         }
     }
+    return fs;
 }
 
 
@@ -511,5 +549,7 @@ int example2()
 
 int main()
 {
-    return example2();
+    file_system* fs = process_input("input.txt");
+
+    (fs == NULL) ? printf("done with failure!\n") : printf("done with success!\n");
 }
