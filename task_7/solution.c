@@ -16,6 +16,7 @@ typedef enum
     INVALID_INPUT,
     NOT_FOUND,
     NOT_A_DIR,
+    ALREADY_EXISTS,
 } res_status_e;
 
 typedef enum
@@ -333,6 +334,129 @@ res_status_e change_dir(file_system* fs, char* next_dir_name)
     return NOT_FOUND;
 }
 
+/*
+if starts with $ it's a command
+    $ ls
+    $ cd <name>
+
+else, files listed in current folder
+dir <dir name>
+<file size> <file_name>
+*/
+res_status_e process_cmd(file_system *fs, char *line)
+{
+    if (!fs || !line)
+    {
+        printf("process_cmd(): input is NULL!\n");
+        return INVALID_INPUT;
+    }
+
+    char* line_copy = (char*)calloc(STR_BUF_LEN(line), sizeof(char));
+    if(!line_copy)
+    {
+        printf("process_cmd(): error allocating memory\n");
+        return MEM_ALLOC_FAILED;
+    }
+    strcpy(line_copy, line);
+
+    bool is_cmd = false;
+    file_type_e file_type = TYPE_FILE;
+    uint32_t token_index = 0;
+    uint32_t file_size = 0;
+    char* token = strtok(line_copy, " ");
+    while(token != NULL)
+    {
+        switch(token_index)
+        {
+            case 0:
+                if(strcmp(token, "$") == 0)
+                {
+                    is_cmd = true;
+                }
+                else if(strcmp(token, "dir") == 0)
+                {
+                    file_type = TYPE_DIR;
+                }
+                else
+                {
+                    file_type = TYPE_FILE;
+                    file_size = (uint32_t)atoi(token);
+                }
+                break;
+            case 1:
+                if(!is_cmd)
+                {
+                    char* file_name = token;
+                    inode* file = NULL;
+                    if(file_type == TYPE_FILE)
+                        file = init_file(file_name, file_size);
+                    else
+                        file = init_dir(file_name);
+                    if(!file)
+                    {
+                        printf("error while trying to create file %s in folder %s\n", file_name, fs->current_folder->name);
+                        return FAILURE;
+                    }
+                    res_status_e status = add_file_to_dir(file, fs->current_folder);
+                    if(status != SUCCESS && status != ALREADY_EXISTS)
+                    {
+                        printf("error %u while adding file %s to folder %s\n", status, file->name, fs->current_folder->name);
+                        return status;
+                    }
+                }
+                break;
+            case 2:
+                // if we got here, we are in "$ cd <folder name>"
+                assert(is_cmd == true);
+                char* folder_name = token;
+                res_status_e status = change_dir(fs, folder_name);
+                if(status != SUCCESS)
+                {
+                    printf("error %u while proccessing cd from %s to %s\n", status, fs->current_folder->name, folder_name);
+                    return status;
+                }
+                break;
+            default:
+                break; // do nothing
+        }
+        token = strtok(NULL, " ");
+        token_index++;
+    }
+    return SUCCESS;
+}
+
+res_status_e read_file(char* file_path)
+{
+    file_system* fs = init_fs();
+
+    res_status_e status;
+
+    if(!file_path)
+    {
+        printf("file_path is NULL!\n");
+        return INVALID_INPUT;
+    }
+    FILE* fp;
+    char line[MAX_LINE];
+
+    fp = fopen(file_path, "r");
+    if(!fp)
+    {
+        printf("error opening file %s\n", file_path);
+        return FAILURE;
+    }
+
+    while(fgets(line, MAX_LINE, fp))
+    {
+        status = process_cmd(fs, line);
+        if(status != SUCCESS)
+        {
+            printf("error code %u while processing cmd: %s\n", status, line);
+            return status;
+        }
+    }
+}
+
 
 int example()
 {
@@ -360,7 +484,7 @@ int example()
     assert(change_dir(fs, "home") == SUCCESS);
     printf("should print home dir\n");
     print_dir(fs->current_folder);
-    
+
     assert(change_dir(fs, "..") == SUCCESS);
     printf("should print root dir\n");
     print_dir(fs->current_folder); 
@@ -368,34 +492,24 @@ int example()
     return 0;
 }
 
-
-res_status_e read_file(char* file_path)
+int example2()
 {
     file_system* fs = init_fs();
+    assert(fs != NULL);
 
-    if(!file_path)
-    {
-        printf("file_path is NULL!\n");
-        return INVALID_INPUT;
-    }
-    FILE* fp;
-    char line[MAX_LINE];
+    process_cmd(fs, "$ ls");
+    process_cmd(fs, "dir home");
+    process_cmd(fs, "dir ywaisman");
+    process_cmd(fs, "15123 file.txt");
+    process_cmd(fs, "$ cd home");
+    process_cmd(fs, "$ ls");
+    process_cmd(fs, "dir ywaisman");
 
-    fp = fopen(file_path, "r");
-    if(!fp)
-    {
-        printf("error opening file %s\n", file_path);
-        return FAILURE;
-    }
-
-    if(fgets(line, MAX_LINE, fp))
-    {
-
-    }
+    print_dir(fs->root_folder);
+    print_dir(fs->current_folder);
 }
-
 
 int main()
 {
-    return example();
+    return example2();
 }
