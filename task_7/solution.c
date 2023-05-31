@@ -6,13 +6,16 @@
 #include <assert.h>
 
 #define STR_BUF_LEN(x) (strlen(x) + 1)
+#define MAX_LINE 60
 
 typedef enum
 {
     SUCCESS = 0,
     FAILURE,
     MEM_ALLOC_FAILED,
-    INVALID_INPUT
+    INVALID_INPUT,
+    NOT_FOUND,
+    NOT_A_DIR,
 } res_status_e;
 
 typedef enum
@@ -35,8 +38,9 @@ typedef struct inode
     char* name;
     file_type_e file_type;
     union {
-        uint32_t file_size;
-        dir_metadata* dir_md;
+        uint32_t file_size;     // TYPE_FILE
+        dir_metadata* dir_md;   // TYPE_DIR
+        struct inode* parent_node;     // TYPE_LINK 
     };
 } inode;
 
@@ -191,7 +195,7 @@ res_status_e add_file_to_dir(inode* file, inode* folder)
         strcpy(parent_dynamic_name, parent_static_name);
         parent_link->name = parent_dynamic_name;
         parent_link->file_type = TYPE_LINK;
-        parent_link->dir_md = folder->dir_md; // reference the parent folder's metadata
+        parent_link->parent_node = folder; // address to parent folder node
         res = add_file_to_dir(parent_link, file); // recursive call
         if(res != SUCCESS)
         {
@@ -292,9 +296,45 @@ file_system* init_fs()
     return fs;
 }
 
+res_status_e change_dir(file_system* fs, char* next_dir_name)
+{
+    if(!fs || !next_dir_name)
+    {
+        printf("input is NULL!\n");
+        return INVALID_INPUT;
+    }
+    
+    assert(fs->current_folder != NULL);         // should never happen!
+    assert(fs->current_folder->dir_md != NULL); // should never happen!
+
+    inode** curr_dir_files = fs->current_folder->dir_md->files_list;
+    uint32_t num_files = fs->current_folder->dir_md->num_files;
+    inode* curr_file = NULL;
+    for(uint32_t index = 0; index < num_files; index++)
+    {
+        curr_file = curr_dir_files[index];
+        if(strcmp(next_dir_name, curr_file->name) == 0) // EQUAL!
+        {
+            switch (curr_file->file_type)
+            {
+            case TYPE_DIR:
+                fs->current_folder = curr_file;
+                return SUCCESS;
+            case TYPE_LINK:
+                fs->current_folder = curr_file->parent_node;
+                return SUCCESS;
+            default: // TYPE_FILE
+                printf("cd: not a directory: %s\n", next_dir_name);
+                return NOT_A_DIR;
+            }
+        }
+    }
+    printf("cd: no such file or directory: %s\n", next_dir_name);
+    return NOT_FOUND;
+}
 
 
-int main()
+int example()
 {
     /*
     TODO: make add_file_to_dir idempotent or crash if called twice?
@@ -317,9 +357,45 @@ int main()
     assert(add_file_to_dir(ywaisman_dir, home_dir) == SUCCESS);
     assert(add_file_to_dir(some_file, home_dir) == SUCCESS);
 
-    print_dir(fs->root_folder);
-
-    print_dir(home_dir);
+    assert(change_dir(fs, "home") == SUCCESS);
+    printf("should print home dir\n");
+    print_dir(fs->current_folder);
+    
+    assert(change_dir(fs, "..") == SUCCESS);
+    printf("should print root dir\n");
+    print_dir(fs->current_folder); 
 
     return 0;
+}
+
+
+res_status_e read_file(char* file_path)
+{
+    file_system* fs = init_fs();
+
+    if(!file_path)
+    {
+        printf("file_path is NULL!\n");
+        return INVALID_INPUT;
+    }
+    FILE* fp;
+    char line[MAX_LINE];
+
+    fp = fopen(file_path, "r");
+    if(!fp)
+    {
+        printf("error opening file %s\n", file_path);
+        return FAILURE;
+    }
+
+    if(fgets(line, MAX_LINE, fp))
+    {
+
+    }
+}
+
+
+int main()
+{
+    return example();
 }
