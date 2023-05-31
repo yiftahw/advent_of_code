@@ -8,6 +8,8 @@
 #define STR_BUF_LEN(x) (strlen(x) + 1)
 #define MAX_LINE 60
 #define TASK1_MAX_SIZE 100000
+#define DISK_SIZE 70000000
+#define UPDATE_SIZE 30000000
 
 typedef enum
 {
@@ -496,8 +498,92 @@ file_system* process_input(char* file_path)
     return fs;
 }
 
+uint32_t get_folder_size(inode* folder, uint32_t* task1_tot_size, uint32_t* task2_supremum, uint32_t task2_missing_size)
+{
+    if(validate_folder(folder) != SUCCESS)
+        return 0;
+    
+    uint32_t size = 0;
 
-int example()
+    for(uint32_t index = 0; index < folder->dir_md->num_files; index++)
+    {
+        inode* curr_file = folder->dir_md->files_list[index];
+        switch(curr_file->file_type)
+        {
+            case TYPE_FILE:
+                size += curr_file->file_size;
+                break;
+            case TYPE_DIR:
+                size += get_folder_size(curr_file, task1_tot_size, task2_supremum, task2_missing_size);
+            default: // TYPE_LINK:
+                continue;
+        }
+    }
+
+    if(task1_tot_size && (size < TASK1_MAX_SIZE))
+        *task1_tot_size += size;
+
+    if(task2_supremum && (size > task2_missing_size) && (size < (*task2_supremum)))
+        *task2_supremum = size;
+
+    return size;
+}
+
+/*
+get the total folder size of folders smaller than 100000
+*/
+uint32_t task1(file_system* fs)
+{
+    if(!fs)
+    {
+        printf("fs is NULL\n");
+        return INVALID_INPUT;
+    }
+
+    uint32_t task1_tot_size = 0;
+    uint32_t root_folder_size = get_folder_size(fs->root_folder, &task1_tot_size, NULL, 0);
+    return task1_tot_size;
+}
+
+uint32_t task2(file_system* fs)
+{
+    if(!fs)
+    {
+        printf("fs is NULL\n");
+        return INVALID_INPUT;
+    }
+
+    uint32_t root_folder_size = get_folder_size(fs->root_folder, NULL, NULL, 0);
+    uint32_t missing_size = UPDATE_SIZE - (DISK_SIZE - root_folder_size);
+    printf("space missing for update: %u\n", missing_size);
+
+    /*
+    need to find the smallest folder that it's size is bigger than "missing_size"
+    */
+
+    uint32_t supremum_size = UINT32_MAX;
+    get_folder_size(fs->root_folder, NULL, &supremum_size, missing_size);
+    printf("supremum size %u\n", supremum_size);
+    return 0;
+}
+
+int main()
+{
+    file_system* fs = process_input("input.txt");
+
+    if(fs == NULL)
+    {
+        printf("failure!\n");
+        return -1;
+    }
+    uint32_t task1_tot_size = task1(fs);
+    printf("total size of folders under 100K: %u\n", task1_tot_size);
+
+    task2(fs);
+}
+
+
+int ut_1()
 {
     /*
     TODO: make add_file_to_dir idempotent or crash if called twice?
@@ -531,7 +617,9 @@ int example()
     return 0;
 }
 
-int example2()
+
+
+int ut_2()
 {
     file_system* fs = init_fs();
     assert(fs != NULL);
@@ -546,62 +634,4 @@ int example2()
 
     print_dir(fs->root_folder);
     print_dir(fs->current_folder);
-}
-
-uint32_t get_folder_size(inode* folder, uint32_t* task1_tot_size)
-{
-    if(validate_folder(folder) != SUCCESS)
-        return 0;
-    
-    uint32_t size = 0;
-
-    for(uint32_t index = 0; index < folder->dir_md->num_files; index++)
-    {
-        inode* curr_file = folder->dir_md->files_list[index];
-        switch(curr_file->file_type)
-        {
-            case TYPE_FILE:
-                size += curr_file->file_size;
-                break;
-            case TYPE_DIR:
-                size += get_folder_size(curr_file, task1_tot_size);
-            default: // TYPE_LINK:
-                continue;
-        }
-    }
-
-    if(task1_tot_size && (size < TASK1_MAX_SIZE))
-        *task1_tot_size += size;
-
-    return size;
-}
-
-/*
-get the total folder size of folders smaller than 100000
-*/
-uint32_t task1(file_system* fs)
-{
-    if(!fs)
-    {
-        printf("fs is NULL\n");
-        return INVALID_INPUT;
-    }
-
-    uint32_t task1_tot_size = 0;
-    get_folder_size(fs->root_folder, &task1_tot_size);
-    return task1_tot_size;
-}
-
-int main()
-{
-    file_system* fs = process_input("input.txt");
-
-    if(fs == NULL)
-    {
-        printf("failure!\n");
-        return -1;
-    }
-    uint32_t task1_tot_size = task1(fs);
-
-    printf("total size of folders under 100K: %u\n", task1_tot_size);
 }
