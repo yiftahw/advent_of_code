@@ -5,6 +5,12 @@
 #include <string>
 #include <cstdint>
 #include <cmath>
+#include <vector>
+
+/*
+part 1: the rope has only 2 links - head and tail
+part 2: the rope has 10 links - the tail is the 10th link
+*/
 
 using namespace std;
 
@@ -15,6 +21,26 @@ typedef enum
     LEFT,
     RIGHT
 } direction_t;
+
+ostream& operator<<(ostream& os, const direction_t& direction)
+{
+    switch (direction)
+    {
+    case UP:
+        os << "UP";
+        break;
+    case DOWN:
+        os << "DOWN";
+        break;
+    case LEFT:
+        os << "LEFT";
+        break;
+    default: // case RIGHT:
+        os << "RIGHT";
+        break;
+    }
+    return os;
+}
 
 typedef struct
 {
@@ -41,25 +67,59 @@ typedef struct position_t
 class rope_game
 {
 private:
-    position_t head_position;
-    position_t tail_position;
-    std::set<position_t> tail_positions;
+    vector<position_t> knots_positions;
+    set<position_t> tail_positions;
     void move_head(direction_t direction);
     void move_tail();
 public:
-    rope_game();
+    rope_game(uint32_t num_knots);
     ~rope_game() = default;
     void play(const play_t& play);
     int32_t get_num_tail_positions();
+
+
 };
 
-rope_game::rope_game() : tail_positions()
+class rope_error : public std::exception
 {
-    head_position.x = 0;
-    head_position.y = 0;
-    tail_position.x = 0;
-    tail_position.y = 0;
-    tail_positions.insert(tail_position);
+private:
+    string msg;
+public:
+    rope_error(const char* msg) : msg(msg) {}
+    const char* what() const noexcept override { return msg.c_str(); }
+};
+
+class invalid_direction : public rope_error
+{
+public:
+    invalid_direction(char direction) : rope_error(("Invalid direction: " + std::string(1, direction)).c_str()) {}
+};
+
+class invalid_num_knots : public rope_error
+{
+    public:
+    invalid_num_knots() : rope_error("Invalid number of knots!") {}
+};
+
+class invalid_game_state : public rope_error
+{
+    public:
+    invalid_game_state() : rope_error("Invalid game state - manhattan distance is greater than 3! (internal error)") {}
+};
+
+
+rope_game::rope_game(uint32_t num_knots) : tail_positions()
+{
+    if (num_knots < 2)
+        throw invalid_num_knots();
+    position_t knot_position;
+    for(uint32_t i = 0; i < num_knots; i++)
+    {
+        knot_position.x = 0;
+        knot_position.y = 0;
+        knots_positions.push_back(knot_position);
+    }
+    tail_positions.insert(knot_position); // add the initial tail position to the set
 }
 
 int32_t rope_game::get_num_tail_positions()
@@ -69,6 +129,7 @@ int32_t rope_game::get_num_tail_positions()
 
 void rope_game::move_head(direction_t direction)
 {
+    position_t& head_position = knots_positions[0];
     switch (direction)
     {
     case UP:
@@ -88,39 +149,50 @@ void rope_game::move_head(direction_t direction)
 
 void rope_game::move_tail()
 {
-    int32_t x_distance = std::abs(head_position.x - tail_position.x);
-    int32_t y_distance = std::abs(head_position.y - tail_position.y);
+    position_t* lead_knot = NULL;
+    position_t* curr_knot = NULL;
 
-    int32_t x_direction = (head_position.x > tail_position.x) ? 1 : -1;
-    int32_t y_direction = (head_position.y > tail_position.y) ? 1 : -1;
+    // need to move knots from the second knot to the last one
+    for(uint32_t i = 1; i < knots_positions.size(); i++)
+    {
+        lead_knot = &knots_positions[i-1];
+        curr_knot = &knots_positions[i];
 
-    if((x_distance + y_distance <= 1) || (x_distance == 1 && y_distance == 1))
-    {
-        // head is close enough to tail, no need to move it
-        return;
+        int32_t x_distance = abs(lead_knot->x - curr_knot->x);
+        int32_t y_distance = abs(lead_knot->y - curr_knot->y);
+
+        int32_t x_direction = (lead_knot->x > curr_knot->x) ? 1 : -1;
+        int32_t y_direction = (lead_knot->y > curr_knot->y) ? 1 : -1;
+
+        if((x_distance + y_distance <= 1) || (x_distance == 1 && y_distance == 1))
+        {
+            // the two knots are adjacent or diagonal, no need to move
+            continue;
+        }
+
+        bool moved = false;
+        if ((x_distance == 2) || (x_distance == 1 && y_distance == 2))
+        {
+            curr_knot->x += x_direction;
+            moved = true;
+        }
+        if ((y_distance == 2) || (y_distance == 1 && x_distance == 2))
+        {
+            curr_knot->y += y_direction;
+            moved = true;
+        }
+        if (!moved)
+        {
+            throw invalid_game_state(); // should never happen
+        }
     }
-    // size is 2 or greater
-    if(x_distance == 2 && y_distance < 2)
-    {
-        tail_position.x += x_direction;
-        if(y_distance > 0) // move diagonally
-            tail_position.y += y_direction;
-    }
-    else if(y_distance == 2 && x_distance < 2)
-    {
-        tail_position.y += y_direction;
-        if(x_distance > 0) // move diagonally
-            tail_position.x += x_direction;
-    }
-    else
-    {
-        throw "Invalid state of the game!"; // should never happen
-    }
-    tail_positions.insert(tail_position); // add the new tail position to the set
+    // the last curr_knot is the tail
+    tail_positions.insert(*curr_knot);
 }
 
 void rope_game::play(const play_t& play)
 {
+    //cout << "playing " << play.steps << " in direction " << play.direction << endl;
     for(int32_t i = 0; i < play.steps; i++)
     {
         move_head(play.direction);
@@ -157,7 +229,7 @@ play_t parse_line(const string& line)
             direction = RIGHT;
             break;
         default:
-            throw "Invalid direction";
+            throw invalid_direction(line[0]);
     }
     steps = stoi(line.substr(2)); // skip the direction and the space
     play_t result;
@@ -166,10 +238,9 @@ play_t parse_line(const string& line)
     return result;
 }
 
-
-int main()
+void part_a()
 {
-    rope_game game;
+    rope_game game(2);
     ifstream input_file("input.txt");
     string line;
     while(getline(input_file, line))
@@ -178,4 +249,32 @@ int main()
         game.play(play);
     }
     cout << "part a: number of tail positions: " << game.get_num_tail_positions() << endl;
+}
+
+void part_b()
+{
+    rope_game game(10);
+    ifstream input_file("input.txt");
+    string line;
+    while(getline(input_file, line))
+    {
+        play_t play = parse_line(line);
+        game.play(play);
+    }
+    cout << "part b: number of tail positions: " << game.get_num_tail_positions() << endl;
+}
+
+
+int main()
+{
+    try
+    {
+        part_a();
+        part_b();
+    }
+    catch(const exception& e)
+    {
+        cerr << e.what() << endl;
+    }
+    return 0;
 }
