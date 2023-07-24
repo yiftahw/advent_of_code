@@ -21,15 +21,14 @@ we need to calculate the "signal strength" (x * cycle number) of the given progr
 #define FIRST_TARGET_CYCLE 20
 #define TARGET_CYCLE_STEP 40
 
-#define CPU_INITIALIZER {1, 1, 0, NULL}
-
 typedef struct
 {
     int32_t x;
-    uint32_t cycle;
     uint32_t signal_strength_sum;
     uint32_t* target_cycles;
 } cpu_t;
+
+#define CPU_INITIALIZER {1, 0, NULL}
 
 typedef enum
 {
@@ -70,7 +69,7 @@ instruction_t parse_line(const char* line)
     return instruction;
 }
 
-void exec_instruction(cpu_t* cpu, instruction_t instruction)
+void exec_instruction(uint32_t* global_cycle_counter, cpu_t* cpu, instruction_t instruction)
 {
     if(!cpu || !cpu->target_cycles || !instruction.opcode > LAST_VALID_OPCODE)
     {
@@ -83,14 +82,14 @@ void exec_instruction(cpu_t* cpu, instruction_t instruction)
         // check if the current cycle is a target cycle
         for (int i = 0; i < TARGET_CYCLES_COUNT; i++)
         {
-            if (cpu->cycle == cpu->target_cycles[i])
+            if ((*global_cycle_counter) == cpu->target_cycles[i])
             {
-                cpu->signal_strength_sum += cpu->x * cpu->cycle;
+                cpu->signal_strength_sum += cpu->x * (*global_cycle_counter);
             }
         }
 
         // tick the cycle counter
-        cpu->cycle++;
+        (*global_cycle_counter)++;
         cycles++;
 
         // execute the instructions
@@ -119,6 +118,7 @@ int main()
     }
 
     // init cpu
+    uint32_t global_cycle_counter = 1;
     cpu_t cpu = CPU_INITIALIZER;
     cpu.target_cycles = calloc(TARGET_CYCLES_COUNT, sizeof(uint32_t));
     for (int i = 0; i < TARGET_CYCLES_COUNT; i++)
@@ -130,7 +130,7 @@ int main()
     while (fgets(line_buffer, sizeof(line_buffer), file))
     {
         instruction_t instruction = parse_line(line_buffer);
-        exec_instruction(&cpu, instruction);
+        exec_instruction(&global_cycle_counter, &cpu, instruction);
     }
 
     // part a:
