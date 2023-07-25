@@ -3,27 +3,44 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <math.h>
 
 /*
 part a:
 the cpu holds:
-- 1 register named x - 32 bits signed, starts at 1
+- 1 register named x_register - 32 bits signed, starts at 1
 - 1 cycle counter - 32 bits unsigned, starts at 1
 
 2 commands:
 - noop - does nothing, takes 1 cycle
-- addx v - adds v to x, takes 2 cycle
+- addx v - adds v to x_register, takes 2 cycle
 
-we need to calculate the "signal strength" (x * cycle number) of the given program at cycles 20, 60, 100, 140, 180, 220
+we need to calculate the "signal strength" (x_register * cycle number) of the given program at cycles 20, 60, 100, 140, 180, 220
+*/
+
+/*
+part b:
+the screen size is 40 x 6
+the global cycle counter represents the pixel being rendered [divide by the screen width to get the row]
+need to render a pixel to the screen
+a sprite with a width of 3 pixels starts at the top left corner, 
+during each cycle, the pixel is ON if the sprite covers the current pixel being rendered,
+the sprite position is determind by the x register value.
 */
 
 #define TARGET_CYCLES_COUNT 6
 #define FIRST_TARGET_CYCLE 20
 #define TARGET_CYCLE_STEP 40
 
+#define CRT_WIDTH 40
+#define CRT_HRIGHT 6
+
+const char OFF_PIXEL = '.';
+const char ON_PIXEL = '#';
+
 typedef struct
 {
-    int32_t x;
+    int32_t x_register;
     uint32_t signal_strength_sum;
     uint32_t* target_cycles;
 } cpu_t;
@@ -79,14 +96,42 @@ void exec_instruction(uint32_t* global_cycle_counter, cpu_t* cpu, instruction_t 
     uint32_t cycles = 0;
     while (true)
     {
+        // part a
         // check if the current cycle is a target cycle
         for (int i = 0; i < TARGET_CYCLES_COUNT; i++)
         {
             if ((*global_cycle_counter) == cpu->target_cycles[i])
             {
-                cpu->signal_strength_sum += cpu->x * (*global_cycle_counter);
+                cpu->signal_strength_sum += cpu->x_register * (*global_cycle_counter);
             }
         }
+
+        // part b
+        // determine if the current pixel is ON
+        // the x register marks the middle of the sprite (should always be between 1 and 40)
+        //! @todo extract the pixels to a 2d array and print it later
+        char current_pixel_state = OFF_PIXEL;
+        uint32_t current_pixel_x_pos = (((*global_cycle_counter) - 1) % CRT_WIDTH);// + 1;
+        uint32_t current_pixel_y_pos = (((*global_cycle_counter) - 1) / CRT_WIDTH);// + 1;
+
+        if (current_pixel_x_pos == 0) // start of new line
+        {
+            printf("\n");
+        }
+
+        for(uint32_t i = 0; i < 3; i++)
+        {
+            uint32_t offset = -1 + i;
+            //uint32_t spirte_pixel_i = ((cpu->x_register + offset - 1) % CRT_WIDTH) + 1;
+            uint32_t spirte_pixel_i = ((cpu->x_register + offset) % CRT_WIDTH);
+            if (current_pixel_x_pos == spirte_pixel_i)
+            {
+                current_pixel_state = ON_PIXEL;
+            }
+        }
+        // print the pixel
+        printf("%c", current_pixel_state);
+        
 
         // tick the cycle counter
         (*global_cycle_counter)++;
@@ -95,7 +140,7 @@ void exec_instruction(uint32_t* global_cycle_counter, cpu_t* cpu, instruction_t 
         // execute the instructions
         if (instruction.opcode == ADDX && cycles == 2)
         {
-            cpu->x += instruction.value;
+            cpu->x_register += instruction.value;
             break;
         }
         else if (instruction.opcode == NOOP && cycles == 1)
@@ -134,5 +179,5 @@ int main()
     }
 
     // part a:
-    printf("part a: %u\n", cpu.signal_strength_sum);
+    printf("\npart a: %u\n", cpu.signal_strength_sum);
 }
